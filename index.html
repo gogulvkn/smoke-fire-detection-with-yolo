@@ -69,22 +69,24 @@ input[type=text]{width:100%;font:400 .9rem var(--body);padding:9px 11px;border:1
 <body>
 <div class="wrap">
   <h1>Smoke &amp; fire detector</h1>
-  <p class="sub">Add a photo or turn on your camera. The model draws a box around any smoke or fire it finds.</p>
+  <p class="sub">Add a photo, upload a video or turn on your camera. The model draws a box around any smoke or fire it finds.</p>
 
   <div class="grid">
     <div class="stage" id="stage">
       <div class="badge" id="badge"><span class="dot"></span><span id="badgeText"></span></div>
       <div class="empty" id="empty">
-        <h2>Drop an image here</h2>
+        <h2>Drop an image or video here</h2>
         <p>You can also paste one from your clipboard.</p>
         <div class="btns">
           <label class="btn primary" style="margin:0;display:inline-block" tabindex="0" id="pick">Choose image</label>
           <button id="camOn" type="button">Use camera</button>
+          <button id="vidOn" type="button">Upload video</button>
         </div>
       </div>
       <canvas id="cv" aria-label="Detection result"></canvas>
-      <div class="bar" id="bar"><button id="camOff" type="button">Stop camera</button><button id="again" type="button">New image</button></div>
+      <div class="bar" id="bar"><button id="camOff" type="button">Stop</button><button id="again" type="button">New image</button></div>
       <input type="file" id="file" accept="image/*" hidden>
+      <input type="file" id="vfile" accept="video/*" hidden>
     </div>
 
     <aside class="panel">
@@ -113,7 +115,7 @@ const $ = s => document.querySelector(s);
 const cv = $("#cv"), ctx = cv.getContext("2d"), stage = $("#stage");
 const off = document.createElement("canvas");
 const COLORS = { fire: "#E5400F", smoke: "#4F7396" };
-let lastBlob = null, stream = null, timer = null, busy = false, streak = 0, video = null;
+let lastBlob = null, stream = null, timer = null, busy = false, streak = 0, video = null, live = false, vurl = null;
 
 function setBadge(kind, text) {
   const b = $("#badge");
@@ -128,8 +130,8 @@ function showCanvas() {
   $("#empty").style.display = "none";
   cv.style.display = "block";
   $("#bar").style.display = "flex";
-  $("#camOff").style.display = stream ? "" : "none";
-  $("#again").style.display = stream ? "none" : "";
+  $("#camOff").style.display = live ? "" : "none";
+  $("#again").style.display = live ? "none" : "";
 }
 
 function draw(src, dets) {
@@ -202,12 +204,27 @@ async function startCamera() {
   video = document.createElement("video");
   video.srcObject = stream; video.muted = true; video.playsInline = true;
   await video.play();
-  showCanvas(); streak = 0;
+  live = true; showCanvas(); streak = 0;
   timer = setInterval(tick, 1000); tick();
 }
 
+async function startVideo(file) {
+  stopCamera();
+  video = document.createElement("video");
+  vurl = URL.createObjectURL(file);
+  video.src = vurl; video.muted = true; video.playsInline = true;
+  video.onended = () => {            // keep the last result on screen
+    if (timer) clearInterval(timer);
+    timer = null; live = false; showCanvas();
+  };
+  try { await video.play(); }
+  catch (e) { return fail(new Error("this video format can\u2019t be played by the browser")); }
+  live = true; showCanvas(); streak = 0;
+  timer = setInterval(tick, 700); tick();
+}
+
 async function tick() {
-  if (busy || !video.videoWidth) return;
+  if (busy || !video || !video.videoWidth) return;
   busy = true;
   off.width = video.videoWidth; off.height = video.videoHeight;
   off.getContext("2d").drawImage(video, 0, 0);
@@ -222,7 +239,9 @@ async function tick() {
 function stopCamera() {
   if (timer) clearInterval(timer);
   if (stream) stream.getTracks().forEach(t => t.stop());
-  timer = stream = video = null; streak = 0;
+  if (video) { video.onended = null; video.pause(); }
+  if (vurl) URL.revokeObjectURL(vurl);
+  timer = stream = video = vurl = null; live = false; streak = 0;
 }
 
 function reset() {
@@ -234,15 +253,17 @@ function reset() {
 $("#pick").onclick = $("#pick").onkeydown = e => { if (e.type === "click" || e.key === "Enter" || e.key === " ") $("#file").click(); };
 $("#file").onchange = e => e.target.files[0] && runImage(e.target.files[0]);
 $("#camOn").onclick = startCamera;
+$("#vidOn").onclick = () => $("#vfile").click();
+$("#vfile").onchange = e => { const f = e.target.files[0]; if (f) startVideo(f); e.target.value = ""; };
 $("#camOff").onclick = reset;
 $("#again").onclick = reset;
 $("#conf").oninput = e => {
   $("#confOut").textContent = Math.round(e.target.value * 100) + "%";
-  if (lastBlob && !stream) runImage(lastBlob);
+  if (lastBlob && !live) runImage(lastBlob);
 };
 ["dragenter", "dragover"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.add("drag"); }));
 ["dragleave", "drop"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.remove("drag"); }));
-stage.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f && f.type.startsWith("image/")) runImage(f); });
+stage.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (!f) return; if (f.type.startsWith("image/")) runImage(f); else if (f.type.startsWith("video/")) startVideo(f); });
 addEventListener("paste", e => { const f = [...e.clipboardData.files].find(f => f.type.startsWith("image/")); if (f) runImage(f); });
 </script>
 </body>
