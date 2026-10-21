@@ -1,0 +1,19 @@
+# data and training outputs
+dataset/
+runs/
+*.cache
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+# OS / editor
+.DS_Store
+.vscode/
+# extra weights and exports (best.pt is kept on purpose)
+last.pt
+yolo11*.pt
+*.onnx
+*.engine
+*.tflite
